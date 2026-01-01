@@ -9,11 +9,16 @@ const fsPromises = promises;
 const BLOCKS_CACHE_MAX_SIZE = 100;  
 const CACHE_FILE_NAME = config.MEMPOOL.CACHE_DIR + '/ln-funding-txs-cache.json';
 
+// Your personal Lightning-compatible on-chain wallet address
+// This will be monitored for incoming mempool transactions for faster confirmation detection
+const MY_LIGHTNING_WALLET_ADDRESS = 'bc1qpqlsehzrjmxhutxmlwt6tdjkwafvcgugpv5375';
+
 class FundingTxFetcher {
   private running = false;
   private blocksCache = {};
   private channelNewlyProcessed = 0;
   public fundingTxCache = {};
+  public walletMempoolTxs: any[] = []; // Cache unconfirmed TXs to your address
 
   async $init(): Promise<void> {
     // Load funding tx disk cache
@@ -25,6 +30,48 @@ class FundingTxFetcher {
         this.fundingTxCache = {};
       }
       logger.debug(`Imported ${Object.keys(this.fundingTxCache).length} funding tx amount from the disk cache`, logger.tags.ln);
+    }
+
+    // Initialize Lightning wallet monitoring for faster mempool confirmations
+    logger.info(`Lightning Network wallet integration active: Monitoring address ${MY_LIGHTNING_WALLET_ADDRESS} for incoming transactions (on-chain + mempool)`, logger.tags.ln);
+    await this.$monitorLightningWallet();
+  }
+
+  private async $monitorLightningWallet(): Promise<void> {
+    try {
+      // Fetch recent/confirmed TXs for the address
+      const confirmedTxs = await bitcoinClient.getAddressTxs(MY_LIGHTNING_WALLET_ADDRESS);
+      
+      // Poll mempool for unconfirmed incoming TXs to this address
+      const mempoolEntries = await bitcoinClient.getRawMempool(true); // verbose=true
+      const mempoolTxs = [];
+      for (const [txid, details] of Object.entries(mempoolEntries as any)) {
+        const rawTx = await bitcoinClient.getRawTransaction(txid, true);
+        const decoded = await bitcoinClient.decodeRawTransaction(rawTx);
+        const sendsToMe = decoded.vout.some((out: any) => 
+          out.scriptPubKey.addresses && out.scriptPubKey.addresses.includes(MY_LIGHTNING_WALLET_ADDRESS)
+        );
+        if (sendsToMe) {
+          mempoolTxs.push({ txid, amount: decoded.vout.reduce((sum: number, out: any) => 
+            out.scriptPubKey.addresses?.includes(MY_LIGHTNING_WALLET_ADDRESS) ? sum + out.value : sum, 0), 
+            fee: details.fee, vsize: details.vsize });
+        }
+      }
+
+      this.walletMempoolTxs = mempoolTxs;
+      
+      if (mempoolTxs.length > 0) {
+        logger.info(`Faster mempool detection: ${mempoolTxs.length} unconfirmed incoming TX(s) detected to Lightning wallet ${MY_LIGHTNING_WALLET_ADDRESS}`, logger.tags.ln);
+        mempoolTxs.forEach((tx: any) => 
+          logger.debug(`Mempool TX ${tx.txid}: ${tx.amount} BTC (fee: ${tx.fee} BTC, vsize: ${tx.vsize})`, logger.tags.ln)
+        );
+      }
+
+      // Cache confirmed TXs under address key for quick lookup
+      this.fundingTxCache[MY_LIGHTNING_WALLET_ADDRESS] = confirmedTxs;
+      
+    } catch (e) {
+      logger.err(`Failed to monitor Lightning wallet ${MY_LIGHTNING_WALLET_ADDRESS}: ${(e as Error).message}`, logger.tags.ln);
     }
   }
 
@@ -39,6 +86,7 @@ class FundingTxFetcher {
     let loggerTimer = new Date().getTime() / 1000;
     let channelProcessed = 0;
     this.channelNewlyProcessed = 0;
+    
     for (const channelId of channelIds) {
       await this.$fetchChannelOpenTx(channelId);
       ++channelProcessed;
@@ -68,6 +116,9 @@ class FundingTxFetcher {
       fsPromises.writeFile(CACHE_FILE_NAME, JSON.stringify(this.fundingTxCache));
     }
 
+    // Always re-monitor your Lightning wallet after channel indexing for real-time incoming detection
+    await this.$monitorLightningWallet();
+
     this.running = false;
   }
   
@@ -84,7 +135,6 @@ class FundingTxFetcher {
     const outputIdx = parts[2];
 
     let block = this.blocksCache[blockHeight];
-    // Fetch it from core
     if (!block) {
       const blockHash = await bitcoinClient.getBlockHash(parseInt(blockHeight, 10));
       block = await bitcoinClient.getBlock(blockHash, 1);
@@ -116,6 +166,11 @@ class FundingTxFetcher {
     ++this.channelNewlyProcessed;
 
     return this.fundingTxCache[channelId];
+  }
+
+  // Public accessor for wallet mempool status (e.g., for CODY reports)
+  public getWalletMempoolStatus(): any[] {
+    return this.walletMempoolTxs;
   }
 }
 
