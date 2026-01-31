@@ -1,0 +1,22 @@
+﻿{
+  "name": "brainpaydollarwiretf",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "clean": "rimraf dist .tsbuildinfo",
+    "build": "tsc -p tsconfig.json",
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "start": "node dist/index.js",
+    "lint": "eslint \"{src,test}/**/*.{ts,tsx,js,jsx}\" --max-warnings=0",
+    "format": "prettier --write \"{src,test}/**/*.{ts,tsx,js,jsx,json,md}\"",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "typecheck": "tsc --noEmit",
+    "decode-hex": "node -r ts-node/register scripts/decode-tx.ts",
+    "btc:regtest:up": "docker-compose up -d bitcoind || true",
+    "btc:regtest:stop": "docker-compose down",
+    "gql:sub": "ts-node src/apollo/tradingSubscription.ts",
+    "stripe:server": "ts-node src/stripe-server/index.ts",
+    "stripe:dev": "concurrently \"pnpm run btc:regtest:up\" \"pnpm run dev\""
+  }
+}
