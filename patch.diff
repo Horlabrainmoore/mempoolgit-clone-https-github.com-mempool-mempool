@@ -1,0 +1,7 @@
+git checkout -b feature/backend-tx-utils
+git apply patch.diff
+git add backend/tx-utils .github/workflows/backend-tx-utils-tests.yml
+git commit -m "chore(tx): add backend/tx-utils (deterministic PSBT builder, inspector, tests) and CI"
+git push origin feature/backend-tx-utils
+# create PR with gh
+gh pr create --title "chore(tx): add backend/tx-utils (deterministic builder + tests + CI)" --body "Adds an isolated backend/tx-utils package providing a deterministic P2WPKH PSBT builder (RBF-enabled), a byte-level hex inspector and a small CLI, plus Mocha/TypeScript tests and a workflow that runs tx-utils tests on PRs. Non-invasive: no changes to existing backend package.json." --base main --head feature/backend-tx-utils --draft=false
