@@ -1,46 +1,40 @@
-import * as fs from 'fs';
-import * as os from 'os';
-import logger from '../logger';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 import { IBackendInfo } from '../mempool.interfaces';
+import config from '../config';
 
 class BackendInfo {
-  private gitCommitHash = '';
-  private hostname = '';
-  private version = '';
+  private backendInfo: IBackendInfo;
 
   constructor() {
-    this.setLatestCommitHash();
-    this.setVersion();
-    this.hostname = os.hostname();
-  }
-
-  public getBackendInfo(): IBackendInfo {
-    return {
-      hostname: this.hostname,
-      gitCommit: this.gitCommitHash,
-      version: this.version,
+    // This file is created by ./fetch-version.ts during building
+    const versionFile = path.join(__dirname, 'version.json');
+    let versionInfo;
+    if (fs.existsSync(versionFile)) {
+      versionInfo = JSON.parse(fs.readFileSync(versionFile).toString());
+    } else {
+      // Use dummy values if `versionFile` doesn't exist (e.g., during testing)
+      versionInfo = {
+        version: '?',
+        gitCommit: '?'
+      };
+    }
+    this.backendInfo = {
+      hostname: os.hostname(),
+      version: versionInfo.version,
+      gitCommit: versionInfo.gitCommit,
+      lightning: config.LIGHTNING.ENABLED,
+      backend: config.MEMPOOL.BACKEND,
     };
   }
 
-  public getShortCommitHash() {
-    return this.gitCommitHash.slice(0, 7);
+  public getBackendInfo(): IBackendInfo {
+    return this.backendInfo;
   }
 
-  private setLatestCommitHash(): void {
-    try {
-      this.gitCommitHash = fs.readFileSync('../.git/refs/heads/master').toString().trim();
-    } catch (e) {
-      logger.err('Could not load git commit info: ' + (e instanceof Error ? e.message : e));
-    }
-  }
-
-  private setVersion(): void {
-    try {
-      const packageJson = fs.readFileSync('package.json').toString();
-      this.version = JSON.parse(packageJson).version;
-    } catch (e) {
-      throw new Error(e instanceof Error ? e.message : 'Error');
-    }
+  public getShortCommitHash(): string {
+    return this.backendInfo.gitCommit.slice(0, 7);
   }
 }
 

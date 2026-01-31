@@ -2,11 +2,9 @@
   <div class="title-asset">
     <h1 i18n="asset|Liquid Asset page title">Asset</h1>
     <div class="tx-link">
-      <a [routerLink]="['/asset/' | relativeUrl, assetString]">
-        <span class="d-inline d-lg-none">{{ assetString | shortenString : 24 }}</span>
-        <span class="d-none d-lg-inline">{{ assetString }}</span>
-      </a>
-      <app-clipboard [text]="assetString"></app-clipboard>
+      <app-truncate [text]="assetString" [lastChars]="8" [link]="['/assets/asset/' | relativeUrl, assetString]">
+        <app-clipboard [text]="assetString"></app-clipboard>
+      </app-truncate>
     </div>
   </div>
 
@@ -20,7 +18,7 @@
           <table class="table table-borderless table-striped">
             <tbody>
               <tr>
-                <td i18n="asset.name|Liquid Asset name">Name</td>
+                <td i18n="Asset name header">Name</td>
                 <td class="assetName">{{ assetContract[2] }} ({{ assetContract[1] }})</td>
               </tr>
               <tr>
@@ -64,7 +62,7 @@
         </div>
         <div class="w-100 d-block d-md-none"></div>
         <div class="col icon-holder">
-          <img *ngIf="!imageError; else defaultIcon" class="assetIcon" [src]="'https://liquid.network/api/v1/asset/' + asset.asset_id + '/icon'" (error)="imageError = true">
+          <img *ngIf="!imageError; else defaultIcon" class="assetIcon" [src]="'/api/v1/asset/' + asset.asset_id + '/icon'" (error)="imageError = true">
           <ng-template #defaultIcon>
             <fa-icon class="defaultIcon" [icon]="['fas', 'database']" [fixedWidth]="true" size="8x"></fa-icon>
           </ng-template>
@@ -148,13 +146,10 @@
   </ng-template>
 
   <ng-template [ngIf]="error">
-    <div class="text-center">
+    <app-http-error [error]="error">
       <span i18n="asset.error.loading-asset-data">Error loading asset data.</span>
-      <br>
-      <i>{{ error.error }}</i>
-    </div>
+    </app-http-error>
   </ng-template>
-
 </div>
 
 <br>

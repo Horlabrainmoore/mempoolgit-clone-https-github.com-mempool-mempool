@@ -1,25 +1,25 @@
-import { Component, OnInit, ChangeDetectionStrategy, Input } from '@angular/core';
-import { Vin, Vout } from '../../interfaces/electrs.interface';
-import { StateService } from 'src/app/services/state.service';
+import { Component, ChangeDetectionStrategy, Input, OnChanges } from '@angular/core';
+import { Vin, Vout } from '@interfaces/electrs.interface';
+import { StateService } from '@app/services/state.service';
+import { AddressType, AddressTypeInfo } from '@app/shared/address-utils';
 
 @Component({
   selector: 'app-address-labels',
   templateUrl: './address-labels.component.html',
   styleUrls: ['./address-labels.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: false,
 })
-export class AddressLabelsComponent implements OnInit {
+export class AddressLabelsComponent implements OnChanges {
   network = '';
 
+  @Input() address: AddressTypeInfo;
   @Input() vin: Vin;
   @Input() vout: Vout;
+  @Input() channel: any;
+  @Input() class: string = '';
 
-  multisig = false;
-  multisigM: number;
-  multisigN: number;
-
-  lightning = null;
-  liquid = null;
+  label?: string;
 
   constructor(
     stateService: StateService,
@@ -27,72 +27,51 @@ export class AddressLabelsComponent implements OnInit {
     this.network = stateService.network;
   }
 
-  ngOnInit() {
-    if (this.vin) {
+  ngOnChanges() {
+    if (this.channel) {
+      this.handleChannel();
+    } else if (this.address) {
+      this.handleAddress();
+    } else if (this.vin) {
       this.handleVin();
     } else if (this.vout) {
       this.handleVout();
     }
   }
 
-  handleVin() {
-    if (this.vin.inner_witnessscript_asm) {
-      if (this.vin.inner_witnessscript_asm.indexOf('OP_DEPTH OP_PUSHNUM_12 OP_EQUAL OP_IF OP_PUSHNUM_11') === 0) {
-        if (this.vin.witness.length > 11) {
-          this.liquid = 'Peg Out';
-        } else {
-          this.liquid = 'Emergency Peg Out';
-        }
-        return;
-      }
+  handleChannel() {
+    const type = this.vout ? 'open' : 'close';
+    const leftNodeName = this.channel.node_left.alias || this.channel.node_left.public_key.substring(0, 10);
+    const rightNodeName = this.channel.node_right.alias || this.channel.node_right.public_key.substring(0, 10);
+    this.label = `Channel ${type}: ${leftNodeName} <> ${rightNodeName}`;
+  }
 
-      [
-        // {regexp: /^OP_DUP OP_HASH160/, label: 'HTLC'},
-        {regexp: /^OP_IF OP_PUSHBYTES_33 \w{33} OP_ELSE OP_PUSHBYTES_2 \w{2} OP_CSV OP_DROP/, label: 'Force Close'}
-      ].forEach((item) => {
-          if (item.regexp.test(this.vin.inner_witnessscript_asm)) {
-            this.lightning = item.label;
-          }
-        }
-      );
-
-      if (this.lightning) {
-        return;
-      }
-
-      if (this.vin.inner_witnessscript_asm.indexOf('OP_CHECKMULTISIG') > -1) {
-        const matches = this.getMatches(this.vin.inner_witnessscript_asm, /OP_PUSHNUM_([0-9])/g, 1);
-        this.multisig = true;
-        this.multisigM = parseInt(matches[0], 10);
-        this.multisigN = parseInt(matches[1], 10);
-
-        if (this.multisigM === 1 && this.multisigN === 1) {
-          this.multisig = false;
-        }
+  handleAddress() {
+    if (this.address?.scripts.size) {
+      const script = this.address?.scripts.values().next().value;
+      if (script.template?.label) {
+        this.label = script.template.label;
       }
     }
+  }
 
-    if (this.vin.inner_redeemscript_asm && this.vin.inner_redeemscript_asm.indexOf('OP_CHECKMULTISIG') > -1) {
-      const matches = this.getMatches(this.vin.inner_redeemscript_asm, /OP_PUSHNUM_([0-9])/g, 1);
-      this.multisig = true;
-      this.multisigM = matches[0];
-      this.multisigN = matches[1];
+  handleVin() {
+    const address = new AddressTypeInfo(this.network || 'mainnet', this.vin.prevout?.scriptpubkey_address, this.vin.prevout?.scriptpubkey_type as AddressType, [this.vin]);
+    if (address?.scripts.size) {
+      const script = address?.scripts.values().next().value;
+      if (script.template?.label) {
+        this.label = script.template.label;
+      }
     }
   }
 
   handleVout() {
-  }
-
-  getMatches(str: string, regex: RegExp, index: number) {
-    if (!index) {
-      index = 1;
+    const address = new AddressTypeInfo(this.network || 'mainnet', this.vout.scriptpubkey_address, this.vout.scriptpubkey_type as AddressType, undefined, this.vout);
+    if (address?.scripts.size) {
+      const script = address?.scripts.values().next().value;
+      if (script.template?.label) {
+        this.label = script.template.label;
+      }
     }
-    const matches = [];
-    let match;
-    while (match = regex.exec(str)) {
-      matches.push(match[index]);
-    }
-    return matches;
   }
-
 }

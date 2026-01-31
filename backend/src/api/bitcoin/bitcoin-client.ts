@@ -1,5 +1,5 @@
 import config from '../../config';
-import * as bitcoin from '@mempool/bitcoin';
+const bitcoin = require('../../rpc-api/index');
 import { BitcoinRpcCredentials } from './bitcoin-api-abstract-factory';
 
 const nodeRpcCredentials: BitcoinRpcCredentials = {
@@ -7,7 +7,8 @@ const nodeRpcCredentials: BitcoinRpcCredentials = {
   port: config.CORE_RPC.PORT,
   user: config.CORE_RPC.USERNAME,
   pass: config.CORE_RPC.PASSWORD,
-  timeout: 60000,
+  timeout: config.CORE_RPC.TIMEOUT,
+  cookie: config.CORE_RPC.COOKIE ? config.CORE_RPC.COOKIE_PATH : undefined,
 };
 
 export default new bitcoin.Client(nodeRpcCredentials);

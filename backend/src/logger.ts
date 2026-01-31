@@ -32,22 +32,28 @@ class Logger {
     local7: 23
   };
 
+  public tags = {
+    mining: 'Mining',
+    ln: 'Lightning',
+    goggles: 'Goggles',
+  };  
+
   // @ts-ignore
-  public emerg: ((msg: string) => void);
+  public emerg: ((msg: string, tag?: string) => void);
   // @ts-ignore
-  public alert: ((msg: string) => void);
+  public alert: ((msg: string, tag?: string) => void);
   // @ts-ignore
-  public crit: ((msg: string) => void);
+  public crit: ((msg: string, tag?: string) => void);
   // @ts-ignore
-  public err: ((msg: string) => void);
+  public err: ((msg: string, tag?: string) => void);
   // @ts-ignore
-  public warn: ((msg: string) => void);
+  public warn: ((msg: string, tag?: string) => void);
   // @ts-ignore
-  public notice: ((msg: string) => void);
+  public notice: ((msg: string, tag?: string) => void);
   // @ts-ignore
-  public info: ((msg: string) => void);
+  public info: ((msg: string, tag?: string) => void);
   // @ts-ignore
-  public debug: ((msg: string) => void);
+  public debug: ((msg: string, tag?: string) => void);
 
   private name = 'mempool';
   private client: dgram.Socket;
@@ -61,20 +67,26 @@ class Logger {
       }
     }
     this.client = dgram.createSocket('udp4');
+    // Unref the socket so it doesn't prevent Node.js from exiting
+    this.client.unref();
+    this.network = this.getNetwork();
+  }
+
+  public updateNetwork(): void {
     this.network = this.getNetwork();
   }
 
   private addprio(prio): void {
     this[prio] = (function(_this) {
-      return function(msg) {
-        return _this.msg(prio, msg);
+      return function(msg, tag?: string) {
+        return _this.msg(prio, msg, tag);
       };
     })(this);
   }
 
   private getNetwork(): string {
-    if (config.BISQ.ENABLED) {
-      return 'bisq';
+    if (config.LIGHTNING.ENABLED) {
+      return config.MEMPOOL.NETWORK === 'mainnet' ? 'lightning' : `${config.MEMPOOL.NETWORK}-lightning`; 
     }
     if (config.MEMPOOL.NETWORK && config.MEMPOOL.NETWORK !== 'mainnet') {
       return config.MEMPOOL.NETWORK;
@@ -82,7 +94,7 @@ class Logger {
     return '';
   }
 
-  private msg(priority, msg) {
+  private msg(priority, msg, tag?: string) {
     let consolemsg, prionum, syslogmsg;
     if (typeof msg === 'string' && msg.length > 0) {
       while (msg[msg.length - 1].charCodeAt(0) === 10) {
@@ -91,11 +103,14 @@ class Logger {
     }
     const network = this.network ? ' <' + this.network + '>' : '';
     prionum = Logger.priorities[priority] || Logger.priorities.info;
-    consolemsg = `${this.ts()} [${process.pid}] ${priority.toUpperCase()}:${network} ${msg}`;
+    consolemsg = `${this.ts()} [${process.pid}] ${priority.toUpperCase()}:${network} ${tag ? '[' + tag + '] ' : ''}${msg}`;
 
     if (config.SYSLOG.ENABLED && Logger.priorities[priority] <= Logger.priorities[config.SYSLOG.MIN_PRIORITY]) {
-      syslogmsg = `<${(Logger.facilities[config.SYSLOG.FACILITY] * 8 + prionum)}> ${this.name}[${process.pid}]: ${priority.toUpperCase()}${network} ${msg}`;
+      syslogmsg = `<${(Logger.facilities[config.SYSLOG.FACILITY] * 8 + prionum)}> ${this.name}[${process.pid}]: ${priority.toUpperCase()}${network} ${tag ? '[' + tag + '] ' : ''}${msg}`;
       this.syslog(syslogmsg);
+    }
+    if (Logger.priorities[priority] > Logger.priorities[config.MEMPOOL.STDOUT_LOG_MIN_PRIORITY]) {
+      return;
     }
     if (priority === 'warning') {
       priority = 'warn';
@@ -140,6 +155,22 @@ class Logger {
     months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return months[month] + ' ' + day + ' ' + hours + ':' + minutes + ':' + seconds;
   }
+
+  /**
+   * Close the UDP socket used for syslog
+   * This should only be called when shutting down or in test teardown
+   */
+  public close(): void {
+    if (this.client) {
+      // Unref allows Node.js to exit even if the socket is open
+      this.client.unref();
+      this.client.close(() => {
+        // Socket closed callback
+      });
+    }
+  }
 }
+
+export type LogLevel = 'emerg' | 'alert' | 'crit' | 'err' | 'warn' | 'notice' | 'info' | 'debug';
 
 export default new Logger();

@@ -9,10 +9,15 @@
     border-radius: 50%;
     margin: 25px;
     line-height: 32px;
-  }  
+  }
+
+  .image.not-rounded {
+    border-radius: 0;
+  }
 
   .intro {
     margin: 25px auto 30px;
+    margin-top: 25px;
     width: 250px;
     display: flex;
     flex-direction: column;
@@ -34,6 +39,15 @@
     padding: 10px 15px 15px;
   }
 
+  video {
+    width: 640px;
+    max-width: 90%;
+    margin-top: 0;
+    @media (min-width: 768px) {
+      height: 360px;
+    }
+  }
+
   .social-icons {
     a {
       margin: auto 10px;
@@ -41,24 +55,31 @@
   }
 
   .alliances,
-  .enterprise-sponsor, 
+  .enterprise-sponsor,
   .community-integrations-sponsor,
-  .maintainers {
-    margin-top: 68px;
+  .maintainers,
+  .managers {
+    margin-top: 30px;
     margin-bottom: 68px;
+    scroll-margin: 30px;
+
+    @media (min-width: 768px) {
+      margin-top: 68px;
+    }
   }
 
-  .maintainers {
+  .maintainers,
+  .managers {
     margin-bottom: 50px;
   }
 
-  .community-sponsor {
+  .community-sponsor, .project-translators {
     display: flex;
     flex-direction: column;
     .wrapper {
       margin: 20px auto;
     }
-    .btn-primary {   
+    .btn-primary {
       max-width: 250px;
       margin: auto;
       height: 45px;
@@ -66,9 +87,23 @@
     }
   }
 
+  .community-sponsor {
+    img {
+      width: 57px;
+      height: 57px;
+    }
+  }
+
+  .whale-sponsor {
+    img {
+      width: 70px;
+      height: 70px;
+    }
+  }
+
   .alliances {
     margin-bottom: 100px;
-    a {    
+    a {
       &:nth-child(3) {
         position: relative;
         top: 10px;
@@ -88,18 +123,19 @@
         margin: 50px 30px 0px;
       }
     }
-    .liquid {    
+    .liquid {
       top: 7px;
       position: relative;
     }
-    .copa {    
+    .copa {
       height: auto;
       top: 23px;
       position: relative;
       width: 300px;
     }
-    .bisq {    
-      top: 3px;
+    .sv {
+      height: 85px;
+      width: auto;
       position: relative;
     }
   }
@@ -107,34 +143,52 @@
   .enterprise-sponsor,
   .contributors,
   .community-sponsor,
+  .project-translators,
   .community-integrations-sponsor,
   .maintainers {
+    scroll-margin: 30px;
     .wrapper {
       display: inline-block;
       a {
         display: inline-block;
         &:hover {
           text-decoration: none;
-          img {
+          img, svg {
             transform: scale(1.1);
           }
         }
-        img, span{
+        img, svg, span {
           display: block;
           transition: 150ms all;
         }
-        img {
+        img, svg {
           margin: 40px 29px 10px;
+          &.image.coldcard {
+            border-radius: 0;
+            height: auto;
+            margin: 20px 29px 20px;
+          }
         }
       }
     }
   }
 
-  .community-sponsor .wrapper {
+  .community-sponsor .wrapper, .project-translators .wrapper {
     margin: 10px auto 20px;
     a img {
       margin: 6px;
     }
+  }
+
+  .project-translators .wrapper {
+    a img {
+      width: 72px;
+      height: 72px;
+    }
+  }
+
+  #project-members a.project-member-avatar img {
+    margin: 40px 20px 10px;
   }
 
   .copyright {
@@ -171,6 +225,21 @@
         margin: 20px auto 30px;
       }
     }
+    .social-icons {
+      a {
+        margin: 45px 10px;
+      }
+      .bitcointv svg {
+        width: 36px;
+        height: auto;
+        vertical-align: bottom;
+        margin-bottom: 2px;
+        margin-left: 5px;
+      }
+      .bitcointv svg:hover {
+        opacity: 0.75;
+      }
+    }
   }
 
   .footer-version {
@@ -180,4 +249,29 @@
 
 .no-about-margin {
   height: 10px;
+}
+
+.community-integrations-sponsor {
+  max-width: 1110px;
+  margin: auto;
+}
+
+.community-integrations-sponsor img.image {
+  width: 64px;
+  height: 64px;
+}
+
+.wiz-logo {
+  width: 260px;
+  max-width: 90vw;
+  margin: auto;
+}
+
+.enterprise-sponsor {
+  .wrapper {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 850px;
+  }
 }

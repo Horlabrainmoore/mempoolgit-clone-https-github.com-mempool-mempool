@@ -1,121 +1,251 @@
-import { ChangeDetectionStrategy, Component, Input, OnInit } from '@angular/core';
-import { combineLatest, Observable, timer } from 'rxjs';
-import { map, switchMap } from 'rxjs/operators';
-import { StateService } from '../..//services/state.service';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, HostListener, ElementRef, ViewChild, Inject, Input, LOCALE_ID, OnInit } from '@angular/core';
+import { combineLatest, Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
+import { StateService } from '@app/services/state.service';
 
 interface EpochProgress {
   base: string;
   change: number;
-  progress: string;
+  progress: number;
+  minedBlocks: number;
   remainingBlocks: number;
+  expectedBlocks: number;
   newDifficultyHeight: number;
   colorAdjustments: string;
   colorPreviousAdjustments: string;
-  timeAvg: string;
-  remainingTime: number;
+  estimatedRetargetDate: number;
+  retargetDateString: string;
   previousRetarget: number;
   blocksUntilHalving: number;
   timeUntilHalving: number;
+  timeAvg: number;
+  adjustedTimeAvg: number;
 }
+
+type BlockStatus = 'mined' | 'behind' | 'ahead' | 'next' | 'remaining';
+
+interface DiffShape {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  status: BlockStatus;
+  expected: boolean;
+}
+
+const EPOCH_BLOCK_LENGTH = 2016; // Bitcoin mainnet
 
 @Component({
   selector: 'app-difficulty',
   templateUrl: './difficulty.component.html',
   styleUrls: ['./difficulty.component.scss'],
+  standalone: false,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DifficultyComponent implements OnInit {
+  @Input() showProgress = true;
+  @Input() showHalving = false;
+  @Input() showTitle = true;
+
+  @ViewChild('epochSvg') epochSvgElement: ElementRef<SVGElement>;
+ 
   isLoadingWebSocket$: Observable<boolean>;
   difficultyEpoch$: Observable<EpochProgress>;
 
-  @Input() showProgress: boolean = true;
-  @Input() showHalving: boolean = false;
+  mode: 'difficulty' | 'halving' = 'difficulty';
+  userSelectedMode: boolean = false;
+
+  now: number = Date.now();
+  epochStart: number;
+  currentHeight: number;
+  currentIndex: number;
+  expectedHeight: number;
+  expectedIndex: number;
+  difference: number;
+  shapes: DiffShape[];
+  nextSubsidy: number;
+
+  tooltipPosition = { x: 0, y: 0 };
+  hoverSection: DiffShape | void;
 
   constructor(
     public stateService: StateService,
+    private cd: ChangeDetectorRef,
+    @Inject(LOCALE_ID) private locale: string,
   ) { }
 
   ngOnInit(): void {
     this.isLoadingWebSocket$ = this.stateService.isLoadingWebSocket$;
-    this.difficultyEpoch$ = timer(0, 1000)
-      .pipe(
-        switchMap(() => combineLatest([
-          this.stateService.blocks$.pipe(map(([block]) => block)),
-          this.stateService.lastDifficultyAdjustment$,
-          this.stateService.previousRetarget$
-        ])),
-        map(([block, DATime, previousRetarget]) => {
-          const now = new Date().getTime() / 1000;
-          const diff = now - DATime;
-          const blocksInEpoch = block.height % 2016;
-          const progress = (blocksInEpoch >= 0) ? (blocksInEpoch / 2016 * 100).toFixed(2) : `100`;
-          const remainingBlocks = 2016 - blocksInEpoch;
-          const newDifficultyHeight = block.height + remainingBlocks;
+    this.difficultyEpoch$ = combineLatest([
+      this.stateService.blocks$,
+      this.stateService.difficultyAdjustment$,
+    ])
+    .pipe(
+      map(([blocks, da]) => {
+        const maxHeight = blocks.reduce((max, block) => Math.max(max, block.height), 0);
+        let colorAdjustments = 'var(--transparent-fg)';
+        if (da.difficultyChange > 0) {
+          colorAdjustments = 'var(--green)';
+        }
+        if (da.difficultyChange < 0) {
+          colorAdjustments = 'var(--red)';
+        }
 
-          let change = 0;
-          if (remainingBlocks < 1870) {
-            if (blocksInEpoch > 0) {
-              change = (600 / (diff / blocksInEpoch ) - 1) * 100;
-            }
-            if (change > 300) {
-              change = 300;
-            }
-            if (change < -75) {
-              change = -75;
-            }
+        let colorPreviousAdjustments = 'var(--red)';
+        if (da.previousRetarget) {
+          if (da.previousRetarget >= 0) {
+            colorPreviousAdjustments = 'var(--green)';
           }
-
-          const timeAvgDiff = change * 0.1;
-
-          let timeAvgMins = 10;
-          if (timeAvgDiff > 0) {
-            timeAvgMins -= Math.abs(timeAvgDiff);
-          } else {
-            timeAvgMins += Math.abs(timeAvgDiff);
+          if (da.previousRetarget === 0) {
+            colorPreviousAdjustments = 'var(--transparent-fg)';
           }
+        } else {
+          colorPreviousAdjustments = 'var(--transparent-fg)';
+        }
 
-          const timeAvg = timeAvgMins.toFixed(0);
-          const remainingTime = (remainingBlocks * timeAvgMins * 60 * 1000) + (now * 1000);
+        const blocksUntilHalving = 210000 - (maxHeight % 210000);
+        const timeUntilHalving = new Date().getTime() + (blocksUntilHalving * 600000);
+        const newEpochStart = Math.floor(this.stateService.latestBlockHeight / EPOCH_BLOCK_LENGTH) * EPOCH_BLOCK_LENGTH;
+        const newExpectedHeight = Math.floor(newEpochStart + da.expectedBlocks);
+        this.now = new Date().getTime();
+        this.nextSubsidy = getNextBlockSubsidy(maxHeight);
 
-          let colorAdjustments = '#ffffff66';
-          if (change > 0) {
-            colorAdjustments = '#3bcc49';
+        if (blocksUntilHalving < da.remainingBlocks && !this.userSelectedMode) {
+          this.mode = 'halving';
+        }
+
+        if (newEpochStart !== this.epochStart || newExpectedHeight !== this.expectedHeight || this.currentHeight !== this.stateService.latestBlockHeight) {
+          this.epochStart = newEpochStart;
+          this.expectedHeight = newExpectedHeight;
+          this.currentHeight = this.stateService.latestBlockHeight;
+          this.currentIndex = this.currentHeight - this.epochStart;
+          this.expectedIndex = Math.min(this.expectedHeight - this.epochStart, 2016) - 1;
+          this.difference = this.currentIndex - this.expectedIndex;
+
+          this.shapes = [];
+          this.shapes = this.shapes.concat(this.blocksToShapes(
+            0, Math.min(this.currentIndex, this.expectedIndex), 'mined', true
+          ));
+          this.shapes = this.shapes.concat(this.blocksToShapes(
+            this.currentIndex + 1, this.expectedIndex, 'behind', true
+          ));
+          this.shapes = this.shapes.concat(this.blocksToShapes(
+            this.expectedIndex + 1, this.currentIndex, 'ahead', false
+          ));
+          if (this.currentIndex < 2015) {
+            this.shapes = this.shapes.concat(this.blocksToShapes(
+              this.currentIndex + 1, this.currentIndex + 1, 'next', (this.expectedIndex > this.currentIndex)
+            ));
           }
-          if (change < 0) {
-            colorAdjustments = '#dc3545';
-          }
+          this.shapes = this.shapes.concat(this.blocksToShapes(
+            Math.max(this.currentIndex + 2, this.expectedIndex + 1), 2105, 'remaining', false
+          ));
+        }
 
-          let colorPreviousAdjustments = '#dc3545';
-          if (previousRetarget) {
-            if (previousRetarget >= 0) {
-              colorPreviousAdjustments = '#3bcc49';
-            }
-            if (previousRetarget === 0) {
-              colorPreviousAdjustments = '#ffffff66';
-            }
-          } else {
-            colorPreviousAdjustments = '#ffffff66';
-          }
 
-          const blocksUntilHalving = block.height % 210000;
-          const timeUntilHalving = (blocksUntilHalving * timeAvgMins * 60 * 1000) + (now * 1000);
+        let retargetDateString;
+        if (da.remainingBlocks > 1870) {
+          retargetDateString = (new Date(da.estimatedRetargetDate)).toLocaleDateString(this.locale, { month: 'long', day: 'numeric' });
+        } else {
+          retargetDateString = (new Date(da.estimatedRetargetDate)).toLocaleTimeString(this.locale, { month: 'long', day: 'numeric', hour: 'numeric', minute: 'numeric' });
+        }
 
-          return {
-            base: `${progress}%`,
-            change,
-            progress,
-            remainingBlocks,
-            timeAvg,
-            colorAdjustments,
-            colorPreviousAdjustments,
-            blocksInEpoch,
-            newDifficultyHeight,
-            remainingTime,
-            previousRetarget,
-            blocksUntilHalving,
-            timeUntilHalving,
-          };
-        })
-      );
+        const data = {
+          base: `${da.progressPercent.toFixed(2)}%`,
+          change: da.difficultyChange,
+          progress: da.progressPercent,
+          minedBlocks: this.currentIndex,
+          remainingBlocks: da.remainingBlocks,
+          expectedBlocks: Math.floor(da.expectedBlocks),
+          colorAdjustments,
+          colorPreviousAdjustments,
+          newDifficultyHeight: da.nextRetargetHeight,
+          estimatedRetargetDate: da.estimatedRetargetDate,
+          retargetDateString,
+          previousRetarget: da.previousRetarget,
+          blocksUntilHalving,
+          timeUntilHalving,
+          timeAvg: da.timeAvg,
+          adjustedTimeAvg: da.adjustedTimeAvg,
+        };
+        return data;
+      })
+    );
   }
+
+  blocksToShapes(start: number, end: number, status: BlockStatus, expected: boolean = false): DiffShape[] {
+    const startY = start % 9;
+    const startX = Math.floor(start / 9);
+    const endY = (end % 9);
+    const endX = Math.floor(end / 9);
+
+    if (startX > endX) {
+      return [];
+    }
+
+    if (startX === endX) {
+      return [{
+        x: startX, y: startY, w: 1, h: 1 + endY - startY, status, expected
+      }];
+    }
+
+    const shapes = [];
+    shapes.push({
+      x: startX, y: startY, w: 1, h: 9 - startY, status, expected
+    });
+    shapes.push({
+      x: endX, y: 0, w: 1, h: endY + 1, status, expected
+    });
+
+    if (startX < endX - 1) {
+      shapes.push({
+        x: startX + 1, y: 0, w: endX - startX - 1, h: 9, status, expected
+      });
+    }
+
+    return shapes;
+  }
+
+  setMode(mode: 'difficulty' | 'halving'): boolean {
+    this.mode = mode;
+    this.userSelectedMode = true;
+    return false;
+  }
+
+  @HostListener('pointerdown', ['$event'])
+  onPointerDown(event): void {
+    if (this.epochSvgElement?.nativeElement?.contains(event.target)) {
+      this.onPointerMove(event);
+      event.preventDefault();
+    }
+  }
+
+  @HostListener('pointermove', ['$event'])
+  onPointerMove(event): void {
+    if (this.epochSvgElement?.nativeElement?.contains(event.target)) {
+      this.tooltipPosition = { x: event.clientX, y: event.clientY };
+      this.cd.markForCheck();
+    }
+  }
+
+  onHover(_, rect): void {
+    this.hoverSection = rect;
+  }
+
+  onBlur(): void {
+    this.hoverSection = null;
+  }
+}
+
+function getNextBlockSubsidy(height: number): number {
+  const halvings = Math.floor(height / 210_000) + 1;
+  // Force block reward to zero when right shift is undefined.
+  if (halvings >= 64) {
+    return 0;
+  }
+
+  let subsidy = BigInt(50 * 100_000_000);
+  // Subsidy is cut in half every 210,000 blocks which will occur approximately every 4 years.
+  subsidy >>= BigInt(halvings);
+  return Number(subsidy);
 }

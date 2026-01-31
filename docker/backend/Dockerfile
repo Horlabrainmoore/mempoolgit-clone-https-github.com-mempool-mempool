@@ -1,23 +1,44 @@
-FROM node:16.10.0-buster-slim AS builder
+FROM rust:1.84-bookworm AS builder
+
+ARG commitHash
+ENV MEMPOOL_COMMIT_HASH=${commitHash}
 
 WORKDIR /build
+
+RUN apt-get update && \
+    apt-get install -y curl ca-certificates && \
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y nodejs=22.14.0-1nodesource1 build-essential python3 pkg-config && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY . .
 
-RUN apt-get update
-RUN apt-get install -y build-essential python3 pkg-config
-RUN npm install
-RUN npm run build
+ENV PATH="/usr/local/cargo/bin:$PATH"
 
-FROM node:16.10.0-buster-slim
+COPY --from=backend . .
+COPY --from=rustgbt . ../rust/
+ENV FD=/build/rust-gbt
+RUN npm install --omit=dev --omit=optional
+
+WORKDIR /build
+RUN npm run package
+
+FROM rust:1.84-bookworm AS runtime
+
+RUN apt-get update && \
+    apt-get install -y curl ca-certificates && \
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y nodejs=22.14.0-1nodesource1 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /backend
 
-COPY --from=builder /build/ .
-
-RUN chmod +x /backend/start.sh
-RUN chmod +x /backend/wait-for-it.sh
-
-RUN chown -R 1000:1000 /backend && chmod -R 755 /backend
+RUN chown 1000:1000 ./
+COPY --from=builder --chown=1000:1000 /build/package ./package/
+COPY --from=builder --chown=1000:1000 /build/GeoIP ./GeoIP/
+COPY --from=builder --chown=1000:1000 /build/mempool-config.json /build/start.sh /build/wait-for-it.sh ./
 
 USER 1000
 

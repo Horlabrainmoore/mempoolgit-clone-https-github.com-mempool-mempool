@@ -1,12 +1,15 @@
 import { Component, ChangeDetectionStrategy, OnChanges, Input, OnInit, ChangeDetectorRef, OnDestroy } from '@angular/core';
-import { Transaction, Block } from 'src/app/interfaces/electrs.interface';
-import { StateService } from 'src/app/services/state.service';
+import { Transaction } from '@interfaces/electrs.interface';
+import { StateService } from '@app/services/state.service';
 import { Subscription } from 'rxjs';
+import { BlockExtended } from '@interfaces/node-api.interface';
+import { CacheService } from '@app/services/cache.service';
 
 @Component({
   selector: 'app-tx-fee-rating',
   templateUrl: './tx-fee-rating.component.html',
   styleUrls: ['./tx-fee-rating.component.scss'],
+  standalone: false,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TxFeeRatingComponent implements OnInit, OnChanges, OnDestroy {
@@ -18,17 +21,17 @@ export class TxFeeRatingComponent implements OnInit, OnChanges, OnDestroy {
   overpaidTimes: number;
   feeRating: number;
 
-  blocks: Block[] = [];
+  blocks: BlockExtended[] = [];
 
   constructor(
     private stateService: StateService,
+    private cacheService: CacheService,
     private cd: ChangeDetectorRef,
   ) { }
 
   ngOnInit() {
-    this.blocksSubscription = this.stateService.blocks$.subscribe(([block]) => {
-      this.blocks.push(block);
-      if (this.tx.status.confirmed && this.tx.status.block_height === block.height && block.medianFee > 0) {
+    this.blocksSubscription = this.cacheService.loadedBlocks$.subscribe((block) => {
+      if (this.tx.status.confirmed && this.tx.status.block_height === block.height && block?.extras?.medianFee > 0) {
         this.calculateRatings(block);
         this.cd.markForCheck();
       }
@@ -40,9 +43,10 @@ export class TxFeeRatingComponent implements OnInit, OnChanges, OnDestroy {
     if (!this.tx.status.confirmed) {
       return;
     }
+    this.cacheService.loadBlock(this.tx.status.block_height);
 
-    const foundBlock = this.blocks.find((b) => b.height === this.tx.status.block_height);
-    if (foundBlock && foundBlock.medianFee > 0) {
+    const foundBlock = this.cacheService.getCachedBlock(this.tx.status.block_height) || null;
+    if (foundBlock && foundBlock?.extras?.medianFee > 0) {
       this.calculateRatings(foundBlock);
     }
   }
@@ -51,12 +55,12 @@ export class TxFeeRatingComponent implements OnInit, OnChanges, OnDestroy {
     this.blocksSubscription.unsubscribe();
   }
 
-  calculateRatings(block: Block) {
+  calculateRatings(block: BlockExtended) {
     const feePervByte = this.tx.effectiveFeePerVsize || this.tx.fee / (this.tx.weight / 4);
-    this.medianFeeNeeded = block.medianFee;
+    this.medianFeeNeeded = block?.extras?.medianFee;
 
-    // Block not filled
-    if (block.weight < this.stateService.env.BLOCK_WEIGHT_UNITS * 0.95) {
+    // Block not filled or sub-sat median fee
+    if (block.weight < this.stateService.env.BLOCK_WEIGHT_UNITS * 0.95 || this.medianFeeNeeded < 1) {
       this.medianFeeNeeded = 1;
     }
 

@@ -27,7 +27,7 @@ const createMock = (url: string) => {
 	return mocks[url];
 };
 
-export const mockWebSocket = () => {
+export const mockWebSocketV2 = () => {
 	cy.on('window:before:load', (win) => {
 		const winWebSocket = win.WebSocket;
 		cy.stub(win, 'WebSocket').callsFake((url) => {
@@ -38,7 +38,6 @@ export const mockWebSocket = () => {
 				win.mockServer = server;
 				win.mockServer.on('connection', (socket) => {
 					win.mockSocket = socket;
-					win.mockSocket.send('{"action":"init"}');
 				});
 
 				win.mockServer.on('message', (message) => {
@@ -59,6 +58,65 @@ export const mockWebSocket = () => {
 	});
 };
 
+export const mockWebSocket = () => {
+	cy.on('window:before:load', (win) => {
+		const winWebSocket = win.WebSocket;
+		cy.stub(win, 'WebSocket').callsFake((url) => {
+			console.log(url);
+			if ((new URL(url).pathname.indexOf('/sockjs-node/') !== 0)) {
+				const { server, websocket } = createMock(url);
+
+				win.mockServer = server;
+				win.mockServer.on('connection', (socket) => {
+					win.mockSocket = socket;
+					win.mockSocket.send('{"conversions":{"USD":32365.338815782445}}');
+					cy.readFile('cypress/fixtures/mainnet_live2hchart.json', 'ascii').then((fixture) => {
+						win.mockSocket.send(JSON.stringify(fixture));
+					});
+					cy.readFile('cypress/fixtures/mainnet_mempoolInfo.json', 'ascii').then((fixture) => {
+						win.mockSocket.send(JSON.stringify(fixture));
+					});
+				});
+
+				win.mockServer.on('message', (message) => {
+					console.log(message);
+				});
+
+				return websocket;
+			} else {
+				return new winWebSocket(url);
+			}
+		});
+	});
+
+	cy.on('window:before:unload', () => {
+		for (const url in mocks) {
+			cleanupMock(url);
+		}
+	});
+};
+
+export const receiveWebSocketMessageFromServer = ({
+	params
+}: { params?: any } = {}) => {
+	cy.window().then((win) => {
+		if (params.message) {
+			console.log('sending message');
+			win.mockSocket.send(params.message.contents);
+		}
+
+		if (params.file) {
+			cy.readFile(`cypress/fixtures/${params.file.path}`, 'utf-8').then((fixture) => {
+				console.log('sending payload');
+				win.mockSocket.send(JSON.stringify(fixture));
+			});
+
+		}
+	});
+	return;
+};
+
+
 export const emitMempoolInfo = ({
 	params
 }: { params?: any } = {}) => {
@@ -75,19 +133,23 @@ export const emitMempoolInfo = ({
 
 		switch (params.command) {
 			case "init": {
-				win.mockSocket.send('{"action":"init"}');
-				win.mockSocket.send('{"action":"want","data":["blocks","stats","mempool-blocks","live-2h-chart"]}');
 				win.mockSocket.send('{"conversions":{"USD":32365.338815782445}}');
-				cy.readFile('cypress/fixtures/mainnet_live2hchart.json', 'ascii').then((fixture) => {
+				cy.readFile('cypress/fixtures/mainnet_live2hchart.json', 'utf-8').then((fixture) => {
 					win.mockSocket.send(JSON.stringify(fixture));
 				});
-				cy.readFile('cypress/fixtures/mainnet_mempoolInfo.json', 'ascii').then((fixture) => {
+				cy.readFile('cypress/fixtures/mainnet_mempoolInfo.json', 'utf-8').then((fixture) => {
 					win.mockSocket.send(JSON.stringify(fixture));
 				});
 				break;
 			}
 			case "rbfTransaction": {
-				cy.readFile('cypress/fixtures/mainnet_rbf.json', 'ascii').then((fixture) => {
+				cy.readFile('cypress/fixtures/mainnet_rbf.json', 'utf-8').then((fixture) => {
+					win.mockSocket.send(JSON.stringify(fixture));
+				});
+				break;
+			}
+			case 'trackTx': {
+				cy.readFile('cypress/fixtures/track_tx.json', 'utf-8').then((fixture) => {
 					win.mockSocket.send(JSON.stringify(fixture));
 				});
 				break;

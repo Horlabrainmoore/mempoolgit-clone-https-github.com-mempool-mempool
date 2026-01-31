@@ -7,25 +7,27 @@ import { Router, ActivatedRoute } from '@angular/router';
 export class StorageService {
   constructor(private router: Router, private route: ActivatedRoute) {
     this.setDefaultValueIfNeeded('graphWindowPreference', '2h');
-    this.setDefaultValueIfNeeded('poolsWindowPreference', '1w');
+    this.setDefaultValueIfNeeded('miningWindowPreference', '1w');
   }
 
   setDefaultValueIfNeeded(key: string, defaultValue: string) {
-    let graphWindowPreference: string = this.getValue(key);
+    const graphWindowPreference: string = this.getValue(key);
+    const fragment = window.location.hash.replace('#', '');
+
     if (graphWindowPreference === null) { // First visit to mempool.space
-      if (this.router.url.includes('graphs') && key === 'graphWindowPreference' ||
-        this.router.url.includes('pools') && key === 'poolsWindowPreference'
+      if (window.location.pathname.includes('graphs') && key === 'graphWindowPreference' ||
+        window.location.pathname.includes('pools') && key === 'miningWindowPreference'
       ) {
-        this.setValue(key, this.route.snapshot.fragment ? this.route.snapshot.fragment : defaultValue);
+        this.setValue(key, fragment ? fragment : defaultValue);
       } else {
         this.setValue(key, defaultValue);
       }
-    } else if (this.router.url.includes('graphs') && key === 'graphWindowPreference' ||
-      this.router.url.includes('pools') && key === 'poolsWindowPreference'
+    } else if (window.location.pathname.includes('graphs') && key === 'graphWindowPreference' ||
+      window.location.pathname.includes('pools') && key === 'miningWindowPreference'
     ) {
       // Visit a different graphs#fragment from last visit
-      if (this.route.snapshot.fragment !== null && graphWindowPreference !== this.route.snapshot.fragment) {
-        this.setValue(key, this.route.snapshot.fragment);
+      if (fragment !== null && graphWindowPreference !== fragment) {
+        this.setValue(key, fragment);
       }
     }
   }
@@ -44,6 +46,22 @@ export class StorageService {
       localStorage.setItem(key, value);
     } catch (e) {
       console.log(e);
+    }
+  }
+
+  removeItem(key: string): void {
+    try {
+      localStorage.removeItem(key);
+    } catch (e) {
+      console.log(e);
+    }
+  }
+
+  getAuth(): any | null {
+    try {
+      return JSON.parse(localStorage.getItem('auth'));
+    } catch(e) {
+      return null;
     }
   }
 }

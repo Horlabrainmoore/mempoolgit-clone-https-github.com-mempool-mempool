@@ -1,17 +1,20 @@
-<span
-  *ngIf="multisig"
-  class="badge badge-pill badge-warning"
-  i18n="address-labels.multisig"
->multisig {{ multisigM }} of {{ multisigN }}</span>
+<ng-template [ngIf]="channel" [ngIfElse]="default">
+  <div>
+    <div class="badge-positioner">
+      <a [routerLink]="['/lightning/channel' | relativeUrl, channel.id]">
+        <span 
+          *ngIf="label"
+          class="badge badge-pill badge-warning {{ class }}"
+        >{{ label }}</span>
+      </a>
+    </div>
+    &nbsp;
+  </div>
+</ng-template>
 
-<span
-  *ngIf="lightning"
-  class="badge badge-pill badge-warning"
-  i18n="address-labels.upper-layer-peg-out"
->Lightning {{ lightning }}</span>
-
-<span
-  *ngIf="liquid"
-  class="badge badge-pill badge-warning"
-  i18n="address-labels.upper-layer-peg-out"
->Liquid {{ liquid }}</span>
+<ng-template #default>
+  <span
+    *ngIf="label"
+    class="badge badge-pill badge-warning {{ class }}"
+  >{{ label }}</span>
+</ng-template>

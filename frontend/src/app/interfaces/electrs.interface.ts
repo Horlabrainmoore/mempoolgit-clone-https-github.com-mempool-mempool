@@ -1,3 +1,7 @@
+import { Price } from '@app/services/price.service';
+import { IChannel } from '@interfaces/node-api.interface';
+import { ParsedTaproot } from '../shared/transaction.utils';
+
 export interface Transaction {
   txid: string;
   version: number;
@@ -14,11 +18,28 @@ export interface Transaction {
   feePerVsize?: number;
   effectiveFeePerVsize?: number;
   ancestors?: Ancestor[];
+  descendants?: Ancestor[];
   bestDescendant?: BestDescendant | null;
   cpfpChecked?: boolean;
+  acceleration?: boolean;
+  acceleratedBy?: number[];
+  acceleratedAt?: number;
+  feeDelta?: number;
   deleteAfter?: number;
   _unblinded?: any;
   _deduced?: boolean;
+  _outspends?: Outspend[];
+  _channels?: TransactionChannels;
+  price?: Price;
+  sigops?: number;
+  flags?: bigint;
+  largeInput?: boolean;
+  largeOutput?: boolean;
+}
+
+export interface TransactionChannels {
+  inputs: { [vin: number]: IChannel };
+  outputs: { [vout: number]: IChannel };
 }
 
 interface Ancestor {
@@ -54,6 +75,14 @@ export interface Vin {
   // Elements
   is_pegin?: boolean;
   issuance?: Issuance;
+  // Custom
+  lazy?: boolean;
+  // Ord
+  isInscription?: boolean;
+  // temporary field for extracted raw simplicity scripts
+  inner_simplicityscript?: string;
+  // parsed taproot info
+  taprootInfo?: ParsedTaproot;
 }
 
 interface Issuance {
@@ -72,12 +101,14 @@ export interface Vout {
   scriptpubkey: string;
   scriptpubkey_asm: string;
   scriptpubkey_type: string;
-  scriptpubkey_address: string;
+  scriptpubkey_address?: string;
   value: number;
   // Elements
   valuecommitment?: number;
   asset?: string;
   pegout?: Pegout;
+  // Ord
+  isRunestone?: boolean;
 }
 
 interface Pegout {
@@ -107,14 +138,8 @@ export interface Block {
   size: number;
   weight: number;
   previousblockhash: string;
-
-  // Custom properties
-  medianFee?: number;
-  feeRange?: number[];
-  reward?: number;
-  coinbaseTx?: Transaction;
-  matchRate: number;
-  stage: number;
+  stale?: boolean;
+  canonical?: string;
 }
 
 export interface Address {
@@ -122,6 +147,31 @@ export interface Address {
   address: string;
   chain_stats: ChainStats;
   mempool_stats: MempoolStats;
+  is_pubkey?: boolean;
+}
+
+export interface ScriptHash {
+  electrum?: boolean;
+  scripthash: string;
+  chain_stats: ChainStats;
+  mempool_stats: MempoolStats;
+}
+
+export interface AddressOrScriptHash {
+  electrum?: boolean;
+  address?: string;
+  scripthash?: string;
+  chain_stats: ChainStats;
+  mempool_stats: MempoolStats;
+}
+
+export interface AddressTxSummary {
+  txid: string;
+  value: number;
+  height: number;
+  time: number;
+  price?: number;
+  tx_position?: number;
 }
 
 export interface ChainStats {
@@ -194,4 +244,11 @@ interface AssetStats {
   peg_out_count: number;
   peg_out_amount: number;
   burn_count: number;
+}
+
+export interface Utxo {
+  txid: string;
+  vout: number;
+  value: number;
+  status: Status;
 }
