@@ -2,5 +2,14 @@
   "editor.tabSize": 2,
   "typescript.preferences.importModuleSpecifier": "relative",
   "typescript.tsdk": "./backend/node_modules/typescript/lib",
-  "rust-analyzer.procMacro.ignored": { "napi-derive": ["napi"] }
+  "rust-analyzer.procMacro.ignored": {
+    "napi-derive": [
+      "napi"
+    ]
+  },
+  "notebook.diff.overviewRuler": true,
+  "notebook.consolidatedRunButton": true,
+  "notebook.formatOnSave.enabled": true,
+  "notebook.insertFinalNewline": true,
+  "notebook.stickyScroll.enabled": true
 }
