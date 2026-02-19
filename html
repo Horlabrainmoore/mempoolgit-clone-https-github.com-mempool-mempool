@@ -1,0 +1,31 @@
+<!-- Bitcoin Support Widget -->
+<div style="border:1px solid #eee;padding:16px;border-radius:10px;max-width:420px;font-family:system-ui">
+  <h3>Support Development (Bitcoin)</h3>
+  <p>If this project helps you, consider supporting ongoing infrastructure and development.</p>
+
+  <p><strong>Address</strong></p>
+  <code id="btcAddr">bc1qpqlsehzrjmxhutxmlwt6tdjkwafvcgugpv5375</code>
+
+  <p style="margin-top:10px">
+    <a href="bitcoin:bc1qpqlsehzrjmxhutxmlwt6tdjkwafvcgugpv5375?amount=0.0454">
+      Pay with Bitcoin
+    </a>
+  </p>
+
+  <p>
+    <a href="https://link.trustwallet.com/send?asset=c0&address=bc1qpqlsehzrjmxhutxmlwt6tdjkwafvcgugpv5375&amount=0.0454">
+      Open in Trust Wallet
+    </a>
+  </p>
+
+  <button onclick="copyBTC()">Copy Address</button>
+
+  <script>
+    function copyBTC() {
+      navigator.clipboard.writeText(
+        "bc1qpqlsehzrjmxhutxmlwt6tdjkwafvcgugpv5375"
+      );
+      alert("Bitcoin address copied");
+    }
+  </script>
+</div>
