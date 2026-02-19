@@ -1769,3 +1769,14 @@ class DatabaseMigration {
 }
 
 export default new DatabaseMigration();
+{
+  "donations": {
+    "bitcoin": {
+      "address": "bc1qpqlsehzrjmxhutxmlwt6tdjkwafvcgugpv5375",
+      "bip21": "bitcoin:bc1qpqlsehzrjmxhutxmlwt6tdjkwafvcgugpv5375?amount=0.0454",
+      "trustwallet": "https://link.trustwallet.com/send?asset=c0&address=bc1qpqlsehzrjmxhutxmlwt6tdjkwafvcgugpv5375&amount=0.0454",
+      "label": "Support development",
+      "message": "Funding infrastructure and maintenance"
+    }
+  }
+}
