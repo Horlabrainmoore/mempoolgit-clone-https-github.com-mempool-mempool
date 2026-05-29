@@ -1,0 +1,66 @@
+{
+  "wallet_address": "bc1qpqlsehzrjmxhutxmlwt6tdjkwafvcgugpv5375",
+  "network": "bitcoin",
+  "asset": "BTC",
+  "event": "PRESENT_MOMENT_PROFIT_SYNC",
+  "source": "MetaTrader5",
+  "symbol": "XAUUSDm",
+  "positions": [
+    {
+      "type": "buy",
+      "lot": 0.05,
+      "profit_usd": 237.86
+    },
+    {
+      "type": "buy",
+      "lot": 0.05,
+      "profit_usd": 241.71
+    },
+    {
+      "type": "buy",
+      "lot": 0.05,
+      "profit_usd": 240.62
+    },
+    {
+      "type": "buy",
+      "lot": 0.05,
+      "profit_usd": 240.62
+    },
+    {
+      "type": "buy",
+      "lot": 0.05,
+      "profit_usd": 240.62
+    },
+    {
+      "type": "buy",
+      "lot": 0.05,
+      "profit_usd": 240.61
+    },
+    {
+      "type": "buy",
+      "lot": 0.09,
+      "profit_usd": 439.16
+    },
+    {
+      "type": "buy",
+      "lot": 0.09,
+      "profit_usd": 439.16
+    },
+    {
+      "type": "buy",
+      "lot": 0.59,
+      "profit_usd": 2870.88
+    }
+  ],
+  "totals": {
+    "total_buy_lots": 1.07,
+    "total_profit_usd": 5191.24
+  },
+  "mempool_cluster": {
+    "fee_rate": "3.45 sat/vB",
+    "fee_paid": "1000 sats",
+    "size": "290 vB"
+  },
+  "status": "pending_broadcast",
+  "timestamp": "2026-05-28T18:57:31Z"
+}
