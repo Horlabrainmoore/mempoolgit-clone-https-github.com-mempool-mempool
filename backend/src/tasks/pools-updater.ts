@@ -19,6 +19,7 @@ class PoolsUpdater {
   poolsUrl: string = config.MEMPOOL.POOLS_JSON_URL;
   treeUrl: string = config.MEMPOOL.POOLS_JSON_TREE_URL;
 
+  /** @asyncSafe */
   public async $startService(): Promise<void> {
     while ('Bitcoin is still alive') {
       try {
@@ -30,8 +31,9 @@ class PoolsUpdater {
     }
   }
 
+  /** @asyncSafe */
   public async updatePoolsJson(): Promise<void> {
-    if (['mainnet', 'testnet', 'signet'].includes(config.MEMPOOL.NETWORK) === false ||
+    if (['mainnet', 'testnet', 'signet', 'testnet4', 'regtest'].includes(config.MEMPOOL.NETWORK) === false ||
       config.MEMPOOL.ENABLED === false
     ) {
       return;
@@ -45,13 +47,13 @@ class PoolsUpdater {
     this.lastRun = now;
 
     try {
+      if (config.DATABASE.ENABLED === true) {
+        this.currentSha = await this.getShaFromDb();
+      }
+
       const githubSha = await this.fetchPoolsSha(); // Fetch pools-v2.json sha from github
       if (githubSha === null) {
         return;
-      }
-
-      if (config.DATABASE.ENABLED === true) {
-        this.currentSha = await this.getShaFromDb();
       }
 
       logger.debug(`pools-v2.json sha | Current: ${this.currentSha} | Github: ${githubSha}`, this.tag);
@@ -98,7 +100,8 @@ class PoolsUpdater {
       logger.info(`Mining pools-v2.json (${githubSha}) import completed`, this.tag);
 
     } catch (e) {
-      this.lastRun = now - 600; // Try again in 10 minutes
+      // fast-forward lastRun to 10 minutes before the next scheduled update
+      this.lastRun = now - Math.max(config.MEMPOOL.POOLS_UPDATE_DELAY - 600, 600);
       logger.err(`PoolsUpdater failed. Will try again in 10 minutes. Exception: ${JSON.stringify(e)}`, this.tag);
     }
   }
@@ -133,6 +136,7 @@ class PoolsUpdater {
 
   /**
    * Fetch our latest pools-v2.json sha from github
+   * @asyncUnsafe
    */
   private async fetchPoolsSha(): Promise<string | null> {
     const response = await this.query(this.treeUrl);
@@ -151,6 +155,7 @@ class PoolsUpdater {
 
   /**
    * Http request wrapper
+   * @asyncUnsafe
    */
   private async query(path): Promise<any[] | undefined> {
     type axiosOptions = {

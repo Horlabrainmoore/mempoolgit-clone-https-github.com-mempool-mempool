@@ -12,7 +12,7 @@ import backendInfo from '../backend-info';
 import transactionUtils from '../transaction-utils';
 import { IEsploraApi } from './esplora-api.interface';
 import loadingIndicators from '../loading-indicators';
-import { TransactionExtended } from '../../mempool.interfaces';
+import { CpfpInfo, TransactionExtended } from '../../mempool.interfaces';
 import logger from '../../logger';
 import blocks from '../blocks';
 import bitcoinClient from './bitcoin-client';
@@ -22,6 +22,7 @@ import rbfCache from '../rbf-cache';
 import { calculateMempoolTxCpfp } from '../cpfp';
 import { handleError } from '../../utils/api';
 import poolsUpdater from '../../tasks/pools-updater';
+import chainTips from '../chain-tips';
 
 const TXID_REGEX = /^[a-f0-9]{64}$/i;
 const BLOCK_HASH_REGEX = /^[a-f0-9]{64}$/i;
@@ -35,6 +36,7 @@ class BitcoinRoutes {
       .get(config.MEMPOOL.API_URL_PREFIX + 'cpfp/:txId', this.$getCpfpInfo)
       .get(config.MEMPOOL.API_URL_PREFIX + 'difficulty-adjustment', this.getDifficultyChange)
       .get(config.MEMPOOL.API_URL_PREFIX + 'fees/recommended', this.getRecommendedFees)
+      .get(config.MEMPOOL.API_URL_PREFIX + 'fees/precise', this.getPreciseRecommendedFees)
       .get(config.MEMPOOL.API_URL_PREFIX + 'fees/mempool-blocks', this.getMempoolBlocks)
       .get(config.MEMPOOL.API_URL_PREFIX + 'backend-info', this.getBackendInfo)
       .get(config.MEMPOOL.API_URL_PREFIX + 'init-data', this.getInitData)
@@ -55,6 +57,10 @@ class BitcoinRoutes {
       .post(config.MEMPOOL.API_URL_PREFIX + 'psbt/addparents', this.postPsbtCompletion)
       .get(config.MEMPOOL.API_URL_PREFIX + 'blocks-bulk/:from', this.getBlocksByBulk.bind(this))
       .get(config.MEMPOOL.API_URL_PREFIX + 'blocks-bulk/:from/:to', this.getBlocksByBulk.bind(this))
+      .get(config.MEMPOOL.API_URL_PREFIX + 'chain-tips', this.getChainTips.bind(this))
+      .get(config.MEMPOOL.API_URL_PREFIX + 'stale-tips', this.getStaleTips.bind(this))
+      .post(config.MEMPOOL.API_URL_PREFIX + 'prevouts', this.$getPrevouts)
+      .post(config.MEMPOOL.API_URL_PREFIX + 'cpfp', this.getCpfpLocalTxs)
       // Temporarily add txs/package endpoint for all backends until esplora supports it
       .post(config.MEMPOOL.API_URL_PREFIX + 'txs/package', this.$submitPackage)
       // Internal routes
@@ -74,6 +80,7 @@ class BitcoinRoutes {
           .get(config.MEMPOOL.API_URL_PREFIX + 'tx/:txId/hex', this.getRawTransaction)
           .get(config.MEMPOOL.API_URL_PREFIX + 'tx/:txId/status', this.getTransactionStatus)
           .get(config.MEMPOOL.API_URL_PREFIX + 'tx/:txId/outspends', this.getTransactionOutspends)
+          .get(config.MEMPOOL.API_URL_PREFIX + 'tx/:txId/merkle-proof', this.getTransactionMerkleProof)
           .get(config.MEMPOOL.API_URL_PREFIX + 'txs/outspends', this.$getBatchedOutspends)
           .get(config.MEMPOOL.API_URL_PREFIX + 'block/:hash/header', this.getBlockHeader)
           .get(config.MEMPOOL.API_URL_PREFIX + 'blocks/tip/hash', this.getBlockTipHash)
@@ -85,9 +92,11 @@ class BitcoinRoutes {
           .get(config.MEMPOOL.API_URL_PREFIX + 'address/:address', this.getAddress)
           .get(config.MEMPOOL.API_URL_PREFIX + 'address/:address/txs', this.getAddressTransactions)
           .get(config.MEMPOOL.API_URL_PREFIX + 'address/:address/txs/summary', this.getAddressTransactionSummary)
+          .get(config.MEMPOOL.API_URL_PREFIX + 'address/:address/utxo', this.getAddressUtxo)
           .get(config.MEMPOOL.API_URL_PREFIX + 'scripthash/:scripthash', this.getScriptHash)
           .get(config.MEMPOOL.API_URL_PREFIX + 'scripthash/:scripthash/txs', this.getScriptHashTransactions)
           .get(config.MEMPOOL.API_URL_PREFIX + 'scripthash/:scripthash/txs/summary', this.getScriptHashTransactionSummary)
+          .get(config.MEMPOOL.API_URL_PREFIX + 'scripthash/:scripthash/utxo', this.getScriptHashUtxo)
           .get(config.MEMPOOL.API_URL_PREFIX + 'address-prefix/:prefix', this.getAddressPrefix)
           ;
       }
@@ -114,6 +123,16 @@ class BitcoinRoutes {
     res.json(result);
   }
 
+  private getPreciseRecommendedFees(req: Request, res: Response) {
+    if (!mempool.isInSync()) {
+      res.statusCode = 503;
+      res.send('Service Unavailable');
+      return;
+    }
+    const result = feeApi.getPreciseRecommendedFee();
+    res.json(result);
+  }
+
   private getMempoolBlocks(req: Request, res: Response) {
     try {
       const result = mempoolBlocks.getMempoolBlocks();
@@ -124,17 +143,14 @@ class BitcoinRoutes {
   }
 
   private getTransactionTimes(req: Request, res: Response) {
-    if (!Array.isArray(req.query.txId)) {
-      handleError(req, res, 500, 'Not an array');
+    if (!req.query.txId || typeof req.query.txId !== 'object') {
+      handleError(req, res, 500, 'invalid txId format');
       return;
     }
     const txIds: string[] = [];
-    for (const _txId in req.query.txId) {
-      if (typeof req.query.txId[_txId] === 'string') {
-        const txid = req.query.txId[_txId].toString();
-        if (TXID_REGEX.test(txid)) {
-          txIds.push(txid);
-        }
+    for (const txid of Object.values(req.query.txId)) {
+      if (typeof txid === 'string' && TXID_REGEX.test(txid)) {
+        txIds.push(txid);
       }
     }
 
@@ -175,11 +191,11 @@ class BitcoinRoutes {
     const tx = mempool.getMempool()[req.params.txId];
     if (tx) {
       if (tx?.cpfpChecked) {
-        res.json({
-          ancestors: tx.ancestors,
+        const response: CpfpInfo & { acceleratedBy?: number[], acceleratedAt?: number, feeDelta?: number } = {
+          ancestors: tx.ancestors || [],
           bestDescendant: tx.bestDescendant || null,
-          descendants: tx.descendants || null,
-          effectiveFeePerVsize: tx.effectiveFeePerVsize || null,
+          descendants: tx.descendants,
+          effectiveFeePerVsize: tx.effectiveFeePerVsize,
           sigops: tx.sigops,
           fee: tx.fee,
           adjustedVsize: tx.adjustedVsize,
@@ -187,7 +203,14 @@ class BitcoinRoutes {
           acceleratedBy: tx.acceleratedBy || undefined,
           acceleratedAt: tx.acceleratedAt || undefined,
           feeDelta: tx.feeDelta || undefined,
-        });
+        };
+        if (config.MEMPOOL.CLUSTER_MEMPOOL && tx.clusterId != null) {
+          const cluster = mempool.clusterMempool?.getClusterForApi(req.params.txId);
+          if (cluster) {
+            response.cluster = cluster;
+          }
+        }
+        res.json(response);
         return;
       }
 
@@ -404,8 +427,8 @@ class BitcoinRoutes {
 
       res.setHeader('Expires', new Date(Date.now() + 1000 * cacheDuration).toUTCString());
       res.json(block);
-    } catch (e) {
-      handleError(req, res, 500, 'Failed to get block');
+    } catch (e: any) {
+      handleError(req, res, e?.response?.status === 404 ? 404 : 500, 'Failed to get block');
     }
   }
 
@@ -467,7 +490,7 @@ class BitcoinRoutes {
 
   private async getBlocks(req: Request, res: Response) {
     try {
-      if (['mainnet', 'testnet', 'signet'].includes(config.MEMPOOL.NETWORK)) { // Bitcoin
+      if (['mainnet', 'testnet', 'signet', 'testnet4', 'regtest'].includes(config.MEMPOOL.NETWORK)) { // Bitcoin
         const height = req.params.height === undefined ? undefined : parseInt(req.params.height, 10);
         res.setHeader('Expires', new Date(Date.now() + 1000 * 60).toUTCString());
         res.json(await blocks.$getBlocks(height, 15));
@@ -481,7 +504,7 @@ class BitcoinRoutes {
 
   private async getBlocksByBulk(req: Request, res: Response) {
     try {
-      if (['mainnet', 'testnet', 'signet'].includes(config.MEMPOOL.NETWORK) === false) { // Liquid - Not implemented
+      if (['mainnet', 'testnet', 'signet', 'testnet4', 'regtest'].includes(config.MEMPOOL.NETWORK) === false) { // Liquid - Not implemented
         handleError(req, res, 404, `This API is only available for Bitcoin networks`);
         return;
       }
@@ -518,6 +541,46 @@ class BitcoinRoutes {
 
     } catch (e) {
       handleError(req, res, 500, 'Failed to get blocks');
+    }
+  }
+
+  private async getChainTips(req: Request, res: Response) {
+    try {
+      if (['mainnet', 'testnet', 'signet', 'testnet4', 'regtest'].includes(config.MEMPOOL.NETWORK)) { // Bitcoin
+        res.setHeader('Expires', new Date(Date.now() + 1000 * 60).toUTCString());
+        const tips = await chainTips.getChainTips();
+        if (tips.length > 0) {
+          res.json(tips);
+        } else {
+          handleError(req, res, 503, `Temporarily unavailable`);
+          return;
+        }
+      } else { // Liquid
+        handleError(req, res, 404, `This API is only available for Bitcoin networks`);
+        return;
+      }
+    } catch (e) {
+      handleError(req, res, 500, 'Failed to get chain tips');
+    }
+  }
+
+  private async getStaleTips(req: Request, res: Response) {
+    try {
+      if (['mainnet', 'testnet', 'signet', 'testnet4', 'regtest'].includes(config.MEMPOOL.NETWORK)) { // Bitcoin
+        res.setHeader('Expires', new Date(Date.now() + 1000 * 60).toUTCString());
+        const tips = await chainTips.getStaleTips();
+        if (tips.length > 0) {
+          res.json(tips);
+        } else {
+          handleError(req, res, 503, `Temporarily unavailable`);
+          return;
+        }
+      } else { // Liquid
+        handleError(req, res, 404, `This API is only available for Bitcoin networks`);
+        return;
+      }
+    } catch (e) {
+      handleError(req, res, 500, 'Failed to get stale tips');
     }
   }
 
@@ -608,6 +671,10 @@ class BitcoinRoutes {
       const addressData = await bitcoinApi.$getAddress(req.params.address);
       res.json(addressData);
     } catch (e) {
+      if (e instanceof Error && e.message === 'Invalid Bitcoin address') {
+        res.status(400).send(e.message);
+        return;
+      }
       if (e instanceof Error && e.message && (e.message.indexOf('too long') > 0 || e.message.indexOf('confirmed status') > 0)) {
         handleError(req, res, 413, e.message);
         return;
@@ -634,11 +701,41 @@ class BitcoinRoutes {
       const transactions = await bitcoinApi.$getAddressTransactions(req.params.address, lastTxId);
       res.json(transactions);
     } catch (e) {
+      if (e instanceof Error && e.message === 'Invalid Bitcoin address') {
+        res.status(400).send(e.message);
+        return;
+      }
       if (e instanceof Error && e.message && (e.message.indexOf('too long') > 0 || e.message.indexOf('confirmed status') > 0)) {
         handleError(req, res, 413, e.message);
         return;
       }
       handleError(req, res, 500, 'Failed to get address transactions');
+    }
+  }
+
+  private async getAddressUtxo(req: Request, res: Response): Promise<void> {
+    if (config.MEMPOOL.BACKEND === 'none') {
+      handleError(req, res, 405, 'Address lookups cannot be used with bitcoind as backend.');
+      return;
+    }
+    if (!ADDRESS_REGEX.test(req.params.address)) {
+      handleError(req, res, 501, `Invalid address`);
+      return;
+    }
+
+    try {
+      const addressData = await bitcoinApi.$getAddressUtxos(req.params.address);
+      res.json(addressData);
+    } catch (e) {
+      if (e instanceof Error && e.message === 'Invalid Bitcoin address') {
+        res.status(400).send(e.message);
+        return;
+      }
+      if (e instanceof Error && e.message && (e.message.indexOf('too long') > 0 || e.message.indexOf('confirmed status') > 0)) {
+        handleError(req, res, 413, e.message);
+        return;
+      }
+      handleError(req, res, 500, 'Failed to get address');
     }
   }
 
@@ -698,6 +795,30 @@ class BitcoinRoutes {
         return;
       }
       handleError(req, res, 500, 'Failed to get script hash transactions');
+    }
+  }
+
+  private async getScriptHashUtxo(req: Request, res: Response): Promise<void> {
+    if (config.MEMPOOL.BACKEND === 'none') {
+      handleError(req, res, 405, 'Address lookups cannot be used with bitcoind as backend.');
+      return;
+    }
+    if (!SCRIPT_HASH_REGEX.test(req.params.scripthash)) {
+      handleError(req, res, 501, `Invalid scripthash`);
+      return;
+    }
+
+    try {
+      // electrum expects scripthashes in little-endian
+      const electrumScripthash = req.params.scripthash.match(/../g)?.reverse().join('') ?? '';
+      const addressData = await bitcoinApi.$getScriptHashUtxos(electrumScripthash);
+      res.json(addressData);
+    } catch (e) {
+      if (e instanceof Error && e.message && (e.message.indexOf('too long') > 0 || e.message.indexOf('confirmed status') > 0)) {
+        handleError(req, res, 413, e.message);
+        return;
+      }
+      handleError(req, res, 500, 'Failed to get script hash');
     }
   }
 
@@ -919,6 +1040,19 @@ class BitcoinRoutes {
     }
   }
 
+  private async getTransactionMerkleProof(req: Request, res: Response): Promise<void> {
+    if (!TXID_REGEX.test(req.params.txId)) {
+      handleError(req, res, 501, `Invalid transaction ID`);
+      return;
+    }
+    try {
+      const result = await bitcoinApi.$getTransactionMerkleProof(req.params.txId);
+      res.json(result);
+    } catch (e) {
+      handleError(req, res, 500, e instanceof Error ? e.message : 'Failed to get transaction merkle proof');
+    }
+  }
+
   private getDifficultyChange(req: Request, res: Response) {
     try {
       const da = difficultyAdjustment.getDifficultyAdjustment();
@@ -981,6 +1115,92 @@ class BitcoinRoutes {
     }
   }
 
+  private async $getPrevouts(req: Request, res: Response) {
+    try {
+      const outpoints = req.body;
+      if (!Array.isArray(outpoints) || outpoints.some((item) => !/^[a-fA-F0-9]{64}$/.test(item.txid) || typeof item.vout !== 'number')) {
+        handleError(req, res, 400, 'Invalid outpoints format');
+        return;
+      }
+
+      if (outpoints.length > 100) {
+        handleError(req, res, 400, 'Too many outpoints requested');
+        return;
+      }
+
+      const result = Array(outpoints.length).fill(null);
+      const memPool = mempool.getMempool();
+
+      for (let i = 0; i < outpoints.length; i++) {
+        const outpoint = outpoints[i];
+        let prevout: IEsploraApi.Vout | null = null;
+        let unconfirmed: boolean | null = null;
+
+        const mempoolTx = memPool[outpoint.txid];
+        if (mempoolTx) {
+          if (outpoint.vout < mempoolTx.vout.length) {
+            prevout = mempoolTx.vout[outpoint.vout];
+            unconfirmed = true;
+          }
+        } else {
+          try {
+            const rawPrevout = await bitcoinClient.getTxOut(outpoint.txid, outpoint.vout, false);
+            if (rawPrevout) {
+              prevout = {
+                value: Math.round(rawPrevout.value * 100000000),
+                scriptpubkey: rawPrevout.scriptPubKey.hex,
+                scriptpubkey_asm: rawPrevout.scriptPubKey.asm ? transactionUtils.convertScriptSigAsm(rawPrevout.scriptPubKey.hex) : '',
+                scriptpubkey_type: transactionUtils.translateScriptPubKeyType(rawPrevout.scriptPubKey.type),
+                scriptpubkey_address: rawPrevout.scriptPubKey && rawPrevout.scriptPubKey.address ? rawPrevout.scriptPubKey.address : '',
+              };
+              unconfirmed = false;
+            }
+          } catch (e) {
+            // Ignore bitcoin client errors, just leave prevout as null
+          }
+        }
+
+        if (prevout) {
+          result[i] = { prevout, unconfirmed };
+        }
+      }
+
+      res.json(result);
+
+    } catch (e) {
+      handleError(req, res, 500, 'Failed to get prevouts');
+    }
+  }
+
+  private getCpfpLocalTxs(req: Request, res: Response) {
+    try {
+      const transactions = req.body;
+
+      if (!Array.isArray(transactions) || transactions.some(tx =>
+        !tx || typeof tx !== 'object' ||
+        !/^[a-fA-F0-9]{64}$/.test(tx.txid) ||
+        typeof tx.weight !== 'number' ||
+        typeof tx.sigops !== 'number' ||
+        typeof tx.fee !== 'number' ||
+        !Array.isArray(tx.vin) ||
+        !Array.isArray(tx.vout)
+      )) {
+        handleError(req, res, 400, 'Invalid transactions format');
+        return;
+      }
+
+      if (transactions.length > 1) {
+        handleError(req, res, 400, 'More than one transaction is not supported yet');
+        return;
+      }
+
+      const cpfpInfo = calculateMempoolTxCpfp(transactions[0], mempool.getMempool(), true);
+      res.json([cpfpInfo]);
+
+    } catch (e) {
+      handleError(req, res, 500, 'Failed to calculate CPFP info');
+    }
+  }
 }
 
 export default new BitcoinRoutes();

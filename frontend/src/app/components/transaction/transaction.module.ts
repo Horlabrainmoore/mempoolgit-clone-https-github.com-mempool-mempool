@@ -9,12 +9,19 @@ import { TransactionExtrasModule } from '@components/transaction/transaction-ext
 import { GraphsModule } from '@app/graphs/graphs.module';
 import { AccelerateCheckout } from '@components/accelerate-checkout/accelerate-checkout.component';
 import { AccelerateFeeGraphComponent } from '@components/accelerate-checkout/accelerate-fee-graph.component';
+import { TransactionRawComponent } from '@components/transaction/transaction-raw.component';
+import { CpfpInfoComponent } from '@components/transaction/cpfp-info.component';
+import { ClusterDiagramComponent } from '@components/cluster-diagram/cluster-diagram.component';
 
 const routes: Routes = [
   {
     path: '',
     redirectTo: '/',
     pathMatch: 'full',
+  },
+  {
+    path: 'preview',
+    component: TransactionRawComponent,
   },
   {
     path: ':id',
@@ -49,12 +56,17 @@ export class TransactionRoutingModule { }
     TransactionDetailsComponent,
     AccelerateCheckout,
     AccelerateFeeGraphComponent,
+    TransactionRawComponent,
+    CpfpInfoComponent,
+    ClusterDiagramComponent,
   ],
   exports: [
     TransactionComponent,
     TransactionDetailsComponent,
     AccelerateCheckout,
     AccelerateFeeGraphComponent,
+    CpfpInfoComponent,
+    ClusterDiagramComponent,
   ]
 })
 export class TransactionModule { }

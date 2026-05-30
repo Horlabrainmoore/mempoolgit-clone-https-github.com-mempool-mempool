@@ -8,6 +8,7 @@ import mining from './mining/mining';
 import transactionUtils from './transaction-utils';
 import BlocksRepository from '../repositories/BlocksRepository';
 import redisCache from './redis-cache';
+import blocks from './blocks';
 
 class PoolsParser {
   miningPools: any[] = [];
@@ -32,6 +33,7 @@ class PoolsParser {
   /**
    * Populate our db with updated mining pool definition
    * @param pools
+   * @asyncUnsafe
    */
   public async migratePoolsJson(): Promise<void> {
     // We also need to wipe the backend cache to make sure we don't serve blocks with
@@ -42,6 +44,8 @@ class PoolsParser {
     await this.$insertUnknownPool();
 
     let reindexUnknown = false;
+    let clearCache = false;
+
 
     for (const pool of this.miningPools) {
       if (!pool.id) {
@@ -78,17 +82,20 @@ class PoolsParser {
         logger.debug(`Inserting new mining pool ${pool.name}`);
         await PoolsRepository.$insertNewMiningPool(pool, slug);
         reindexUnknown = true;
+        clearCache = true;
       } else {
         if (poolDB.name !== pool.name) {
           // Pool has been renamed
           const newSlug = pool.name.replace(/[^a-z0-9]/gi, '').toLowerCase();
           logger.warn(`Renaming ${poolDB.name} mining pool to ${pool.name}. Slug has been updated. Maybe you want to make a redirection from 'https://mempool.space/mining/pool/${poolDB.slug}' to 'https://mempool.space/mining/pool/${newSlug}`);
           await PoolsRepository.$renameMiningPool(poolDB.id, newSlug, pool.name);
+          clearCache = true;
         }
         if (poolDB.link !== pool.link) {
           // Pool link has changed
           logger.debug(`Updating link for ${pool.name} mining pool`);
           await PoolsRepository.$updateMiningPoolLink(poolDB.id, pool.link);
+          clearCache = true;
         }
         if (JSON.stringify(pool.addresses) !== poolDB.addresses ||
           JSON.stringify(pool.regexes) !== poolDB.regexes) {
@@ -96,6 +103,7 @@ class PoolsParser {
           logger.notice(`Updating addresses and/or coinbase tags for ${pool.name} mining pool.`);
           await PoolsRepository.$updateMiningPoolTags(poolDB.id, pool.addresses, pool.regexes);
           reindexUnknown = true;
+          clearCache = true;
           await this.$reindexBlocksForPool(poolDB.id);
         }
       }
@@ -110,6 +118,17 @@ class PoolsParser {
         unknownPool = this.unknownPool;
       }
       await this.$reindexBlocksForPool(unknownPool.id);
+    }
+
+    // refresh the in-memory block cache with the reindexed data
+    if (clearCache) {
+      for (const block of blocks.getBlocks()) {
+        const reindexedBlock = await blocks.$indexBlock(block.id);
+        block.extras.pool = reindexedBlock.extras.pool;
+      }
+      // update persistent cache with the reindexed data
+      void diskCache.$saveCacheToDisk();
+      void redisCache.$updateBlocks(blocks.getBlocks());
     }
   }
 
@@ -141,6 +160,7 @@ class PoolsParser {
 
   /**
    * Manually add the 'unknown pool'
+   * @asyncSafe
    */
   public async $insertUnknownPool(): Promise<void> {
     if (!config.DATABASE.ENABLED) {
@@ -172,12 +192,13 @@ class PoolsParser {
    * re-index pool assignment for blocks previously associated with pool
    *
    * @param pool local id of existing pool to reindex
+   * @asyncUnsafe
    */
   private async $reindexBlocksForPool(poolId: number): Promise<void> {
     let firstKnownBlockPool = 130635; // https://mempool.space/block/0000000000000a067d94ff753eec72830f1205ad3a4c216a08a80c832e551a52
     if (config.MEMPOOL.NETWORK === 'testnet') {
       firstKnownBlockPool = 21106; // https://mempool.space/testnet/block/0000000070b701a5b6a1b965f6a38e0472e70b2bb31b973e4638dec400877581
-    } else if (config.MEMPOOL.NETWORK === 'signet') {
+    } else if (['signet', 'testnet4', 'regtest'].includes(config.MEMPOOL.NETWORK)) {
       firstKnownBlockPool = 0;
     }
 

@@ -32,6 +32,7 @@ const periodSeconds = {
       z-index: 99;
     }
   `],
+  standalone: false,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AddressGraphComponent implements OnChanges, OnDestroy {
@@ -44,6 +45,8 @@ export class AddressGraphComponent implements OnChanges, OnDestroy {
   @Input() right: number | string = 10;
   @Input() left: number | string = 70;
   @Input() widget: boolean = false;
+  @Input() label: string = '';
+  @Input() image: string = '';
   @Input() defaultFiat: boolean = false;
   @Input() showLegend: boolean = true;
   @Input() showYAxis: boolean = true;
@@ -128,7 +131,7 @@ export class AddressGraphComponent implements OnChanges, OnDestroy {
                 }
               }),
               map(() => [redraw, extendedSummary, conversions])
-            )
+            );
           } else {
             return of([redraw, addressSummary, conversions]);
           }
@@ -186,6 +189,7 @@ export class AddressGraphComponent implements OnChanges, OnDestroy {
 
     this.adjustedRight = this.selected['Fiat'] ? +this.right + 40 : +this.right;
     this.adjustedLeft = this.selected[$localize`:@@7e69426bd97a606d8ae6026762858e6e7c86a1fd:Balance`] ? +this.left : +this.left - 40;
+    const graphicElements = this.graphicElements();
 
     this.chartOptions = {
       color: [
@@ -205,13 +209,14 @@ export class AddressGraphComponent implements OnChanges, OnDestroy {
         right: this.adjustedRight,
         left: this.adjustedLeft,
       },
+      graphic: graphicElements.length > 0 ? graphicElements : undefined,
       legend: (this.showLegend && !this.stateService.isAnyTestnet()) ? {
         data: [
           {
             name: $localize`:@@7e69426bd97a606d8ae6026762858e6e7c86a1fd:Balance`,
             inactiveColor: 'var(--grey)',
             textStyle: {
-              color: 'white',
+              color: 'var(--fg)',
             },
             icon: 'roundRect',
           },
@@ -219,7 +224,7 @@ export class AddressGraphComponent implements OnChanges, OnDestroy {
             name: 'Fiat',
             inactiveColor: 'var(--grey)',
             textStyle: {
-              color: 'white',
+              color: 'var(--fg)',
             },
             icon: 'roundRect',
           }
@@ -319,7 +324,7 @@ export class AddressGraphComponent implements OnChanges, OnDestroy {
             show: this.showYAxis,
             color: 'rgb(110, 112, 121)',
             formatter: (val): string => {
-              let valSpan = maxValue - (this.period === 'all' ? 0 : minValue);
+              const valSpan = maxValue - (this.period === 'all' ? 0 : minValue);
               if (valSpan > 100_000_000_000) {
                 return `${this.amountShortenerPipe.transform(Math.round(val / 100_000_000), 0, undefined, true)} BTC`;
               }
@@ -408,7 +413,7 @@ export class AddressGraphComponent implements OnChanges, OnDestroy {
         right: this.adjustedRight,
         selectedDataBackground: {
           lineStyle: {
-            color: '#fff',
+            color: 'var(--fg)',
             opacity: 0.45,
           },
         },
@@ -437,12 +442,14 @@ export class AddressGraphComponent implements OnChanges, OnDestroy {
     this.selected = e.selected;
     this.adjustedRight = this.selected['Fiat'] ? +this.right + 40 : +this.right;
     this.adjustedLeft = this.selected[$localize`:@@7e69426bd97a606d8ae6026762858e6e7c86a1fd:Balance`] ? +this.left : +this.left - 40;
+    const graphicElements = this.graphicElements();
 
     this.chartOptions = {
       grid: {
         right: this.adjustedRight,
         left: this.adjustedLeft,
       },
+      graphic: graphicElements.length > 0 ? graphicElements : undefined,
       legend: {
         selected: this.selected,
       },
@@ -503,5 +510,53 @@ export class AddressGraphComponent implements OnChanges, OnDestroy {
     }
 
     return extendedSummary;
+  }
+
+  graphicElements() {
+    const children = [];
+    const imgWidth = this.isMobile() ? 60 : 120;
+    const imgHeight = this.isMobile() ? 40 : 80;
+
+    if (this.image) {
+      children.push({
+        type: 'image',
+        style: {
+          image: this.image,
+          width: imgWidth,
+          height: imgHeight,
+        },
+        left: 'center',
+        top: 0,
+        z: 100,
+      });
+    }
+
+    if (this.label) {
+      children.push({
+        type: 'text',
+        left: 'center',
+        top: this.image ? imgHeight + 10 : 0,
+        z: 100,
+        style: {
+          fill: 'var(--fg)',
+          text: this.label,
+          font: this.isMobile() ? '18px sans-serif' : '24px sans-serif',
+          textAlign: 'center'
+        }
+      });
+    }
+
+    if (children.length) {
+      return [{
+        type: 'group',
+        right: this.adjustedRight + (this.isMobile() ? 10 : 22),
+        bottom: '36px',
+        z: 100,
+        silent: true,
+        children: children
+      }];
+    } else {
+      return [];
+    }
   }
 }

@@ -6,7 +6,7 @@ import logger from '../../../logger';
 
 const fsPromises = promises;
 
-const BLOCKS_CACHE_MAX_SIZE = 100;  
+const BLOCKS_CACHE_MAX_SIZE = 100;
 const CACHE_FILE_NAME = config.MEMPOOL.CACHE_DIR + '/ln-funding-txs-cache.json';
 
 // Your personal Lightning-compatible on-chain wallet address
@@ -75,12 +75,13 @@ class FundingTxFetcher {
     }
   }
 
+  /** @asyncUnsafe */
   async $fetchChannelsFundingTxs(channelIds: string[]): Promise<void> {
     if (this.running) {
       return;
     }
     this.running = true;
-    
+
     const globalTimer = new Date().getTime() / 1000;
     let cacheTimer = new Date().getTime() / 1000;
     let loggerTimer = new Date().getTime() / 1000;
@@ -105,7 +106,9 @@ class FundingTxFetcher {
       elapsedSeconds = Math.round((new Date().getTime() / 1000) - cacheTimer);
       if (elapsedSeconds > 60) {
         logger.debug(`Saving ${Object.keys(this.fundingTxCache).length} funding txs cache into disk`, logger.tags.ln);
-        fsPromises.writeFile(CACHE_FILE_NAME, JSON.stringify(this.fundingTxCache));
+        fsPromises.writeFile(CACHE_FILE_NAME, JSON.stringify(this.fundingTxCache)).catch((e) => {
+          logger.err(`Error saving funding txs cache to disk: ${e instanceof Error ? e.message : e}`, logger.tags.ln);
+        });
         cacheTimer = new Date().getTime() / 1000;
       }
     }
@@ -113,7 +116,9 @@ class FundingTxFetcher {
     if (this.channelNewlyProcessed > 0) {
       logger.info(`Indexed ${this.channelNewlyProcessed} additional channels funding tx`, logger.tags.ln);
       logger.debug(`Saving ${Object.keys(this.fundingTxCache).length} funding txs cache into disk`, logger.tags.ln);
-      fsPromises.writeFile(CACHE_FILE_NAME, JSON.stringify(this.fundingTxCache));
+      fsPromises.writeFile(CACHE_FILE_NAME, JSON.stringify(this.fundingTxCache)).catch((e) => {
+        logger.err(`Error saving funding txs cache to disk: ${e instanceof Error ? e.message : e}`, logger.tags.ln);
+      });
     }
 
     // Always re-monitor your Lightning wallet after channel indexing for real-time incoming detection
@@ -121,15 +126,24 @@ class FundingTxFetcher {
 
     this.running = false;
   }
-  
+
+  /** @asyncUnsafe */
   public async $fetchChannelOpenTx(channelId: string): Promise<{timestamp: number, txid: string, value: number} | null> {
     channelId = Common.channelIntegerIdToShortId(channelId);
+
+    if (!channelId?.length) {
+      return null;
+    }
 
     if (this.fundingTxCache[channelId]) {
       return this.fundingTxCache[channelId];
     }
 
-    const parts = channelId.split('x');
+    const parts = channelId?.split('x') ?? [];
+    if (parts.length < 3) {
+      logger.debug(`Channel ID ${channelId} does not seem valid, should contains at least 3 parts separated by 'x'`, logger.tags.ln);
+      return null;
+    }
     const blockHeight = parts[0];
     const txIdx = parts[1];
     const outputIdx = parts[2];
@@ -149,6 +163,10 @@ class FundingTxFetcher {
     }
 
     const txid = block.tx[txIdx];
+    if (!txid) {
+      logger.debug(`Cannot cache ${channelId} funding tx. TX index ${txIdx} does not exist in block ${block.hash ?? block.id}`, logger.tags.ln);
+      return null;
+    }
     const rawTx = await bitcoinClient.getRawTransaction(txid);
     const tx = await bitcoinClient.decodeRawTransaction(rawTx);
 
